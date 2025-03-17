@@ -1,6 +1,10 @@
 # Changelog
 
-## v0.6.18
+## v0.6.20
+
+- Add activation for `.mdx` files
+
+## v0.6.19
 
 - Add `:once` directive for long running function code doesn't have dependent cells
 - Move Mojo alias and functions into inner scope in main function, to fix closures
@@ -61,9 +65,11 @@
 - Update vscode to latest engine, previously had some issues with renderer hanging
 
 ## v0.6.7
+
 - Auto generate module from python cells when running Mojo cell
 
 ## v0.6.6
+
 - Default to using mdlab when opening a .md file
 - Improve README.md
 

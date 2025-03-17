@@ -2,7 +2,7 @@
   "name": "mdlab",
   "displayName": "Markdown Lab",
   "publisher": "jackos",
-  "version": "0.6.19",
+  "version": "0.6.20",
   "description": "Run markdown code blocks interactively in a notebook with any programming language, and generate code blocks with LLMs.",
   "main": "./out/extension.js",
   "icon": "mdlab.png",
@@ -118,7 +118,7 @@
         "priority": "default",
         "selector": [
           {
-            "filenamePattern": "*.{md,markdown}"
+            "filenamePattern": "*.{md,mdx,markdown}"
           }
         ]
       }
