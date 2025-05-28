@@ -1,32 +1,49 @@
-import { mkdirSync, stat, writeFile } from 'fs';
-import { join } from 'path';
-import { commands, Uri } from 'vscode';
-import { workspace, window } from 'vscode';
-import { getBaseFile, getBasePath } from '../config';
+import * as vscode from 'vscode';
+import { getBasePath } from '../config';
+import { outputChannel } from '../utils';
 
-export const searchNotes = async () => {
-    const basePath = getBasePath();
-    const baseFile = join(basePath, getBaseFile());
-    stat(baseFile, (err, _) => {
-        if (err === null) {
-        } else if (err.code === 'ENOENT') {
-            mkdirSync(basePath, { recursive: true });
-            // file does not exist
-            writeFile(baseFile, welcomeMessage, { flag: 'wx' }, (err) => {
-                if (err) { throw err; };
-            });
-        } else {
-            window.showErrorMessage(`Error opening file: ${err.code}`);
+export async function searchNotes(): Promise<void> {
+    try {
+        const basePath = getBasePath();
+        outputChannel.appendLine(`Searching notes in: ${basePath}`);
+
+        // Add base path to workspace if not already present
+        await addToWorkspace(basePath);
+
+        // Open search in files
+        await vscode.commands.executeCommand('workbench.action.findInFiles');
+
+        outputChannel.appendLine('Search command executed successfully');
+    } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        outputChannel.appendLine(`Error in searchNotes: ${errorMessage}`);
+        vscode.window.showErrorMessage(`Failed to search notes: ${errorMessage}`);
+    }
+}
+
+async function addToWorkspace(folderPath: string): Promise<void> {
+    const workspaceFolders = vscode.workspace.workspaceFolders || [];
+
+    // Check if folder is already in workspace
+    const isAlreadyInWorkspace = workspaceFolders.some(
+        (folder: vscode.WorkspaceFolder) => folder.uri.fsPath === folderPath
+    );
+
+    if (!isAlreadyInWorkspace) {
+        const folderUri = vscode.Uri.file(folderPath);
+        const newIndex = workspaceFolders.length;
+
+        const success = vscode.workspace.updateWorkspaceFolders(newIndex, null, { uri: folderUri });
+
+        if (!success) {
+            throw new Error('Failed to add folder to workspace');
         }
-    });
 
-    workspace.updateWorkspaceFolders(workspace.workspaceFolders ? workspace.workspaceFolders.length : 0, null, { uri: Uri.parse(basePath) });
-    workspace.openTextDocument(baseFile).then(doc => {
-        window.showTextDocument(doc);
-    });
-    await commands.executeCommand("workbench.action.findInFiles");
-};
-
+        outputChannel.appendLine(`Added ${folderPath} to workspace`);
+    } else {
+        outputChannel.appendLine(`${folderPath} is already in workspace`);
+    }
+}
 
 let welcomeMessage = `
 # mdlab

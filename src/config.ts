@@ -12,4 +12,5 @@ export const getOpenAIOrgID = () => config().get<string>('openaiOrgID');
 export const getOpenAIModel = () => config().get<string>('openaiModel');
 export const getOpenAIKey = () => config().get<string>('openaiKey');
 export const getGroqAIKey = () => config().get<string>('groqKey');
-export const modularHome = () => mojoConfig().get<string | undefined>('modularHomePath')
+export const getGroqModel = () => config().get<string>('groqModel');
+export const modularHome = () => mojoConfig().get<string | undefined>('modularHomePath');

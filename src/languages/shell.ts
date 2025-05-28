@@ -1,24 +1,27 @@
-import { ChildProcessWithoutNullStreams, spawn } from "child_process";
-import { writeFileSync, chmodSync, mkdirSync } from "fs";
-import { getTempPath } from "../config";
-import * as vscode from "vscode";
-import path from "path";
-import { NotebookCell } from "vscode";
-import { LanguageCommand } from "../types";
+import { ChildProcessWithoutNullStreams, spawn } from 'child_process';
+import { writeFileSync, chmodSync, mkdirSync } from 'fs';
+import { getTempPath } from '../config';
+import * as vscode from 'vscode';
+import path from 'path';
+import { NotebookCell } from 'vscode';
+import { LanguageCommand } from '../types';
 
 let tempDir = getTempPath();
 
-export const processShell = (cell: NotebookCell, language: string): {stream: ChildProcessWithoutNullStreams, clearOutput: boolean } => {
-    let prog = ""
-    switch(language){
-        case "nushell":
-            prog = "nu";
+export const processShell = (
+    cell: NotebookCell,
+    language: string
+): { stream: ChildProcessWithoutNullStreams; clearOutput: boolean } => {
+    let prog = '';
+    switch (language) {
+        case 'nushell':
+            prog = 'nu';
             break;
-        case "fish":
-            prog = "fish";
+        case 'fish':
+            prog = 'fish';
             break;
         default:
-            prog = "bash";
+            prog = 'bash';
             break;
     }
 
@@ -30,7 +33,7 @@ export const processShell = (cell: NotebookCell, language: string): {stream: Chi
     fi
     env | sort | awk -F '=' '{if ($2 ~ / /) printf "%s=\\"%s\\"\\n", $1, $2; else print $0}' > ${tempDir}/env_before.txt
     echo '!!output-start-cell'
-    `
+    `;
 
     const env_after = `
     env | sort | awk -F '=' '{if ($2 ~ / /) printf "%s=\\"%s\\"\\n", $1, $2; else print $0}' > ${tempDir}/env_after.txt
@@ -46,43 +49,45 @@ export const processShell = (cell: NotebookCell, language: string): {stream: Chi
     echo "$unset_vars" >> ${tempDir}/env_changes.sh
 
     sort ${tempDir}/env_changes.sh | uniq | grep . > ${tempDir}/filename.tmp && mv ${tempDir}/filename.tmp ${tempDir}/env_changes.sh
-    `
+    `;
 
     let fileName = vscode.window.activeTextEditor?.document.fileName as string;
     // Get directory by slicing off last slash
-    let dir = fileName.substring(0, fileName.lastIndexOf("/"));
-    if (dir === "") {
-        dir = fileName.substring(0, fileName.lastIndexOf("\\"));
+    let dir = fileName.substring(0, fileName.lastIndexOf('/'));
+    if (dir === '') {
+        dir = fileName.substring(0, fileName.lastIndexOf('\\'));
     }
-    let main = "";
+    let main = '';
     // Ignore all the clutter from the generated files when running tree
     let contents = cell.document.getText();
-    
+
     // Fix up tree output to filter out generated files if user calls that command
-    if (contents.trim() == "tree") {
-        writeFileSync(path.join(tempDir, ".gitignore"), `env_before.txt
+    if (contents.trim() === 'tree') {
+        writeFileSync(
+            path.join(tempDir, '.gitignore'),
+            `env_before.txt
 env_after.txt
 env_changes.sh
 main
 __pycache__
 rust/target
 venv
-        `);
-        contents = "tree --gitignore"
+        `
+        );
+        contents = 'tree --gitignore';
     }
 
     // Save and load env vars on each shell incarnation
-    main += env_before + contents + env_after
+    main += env_before + contents + env_after;
 
     let clearOutput = false;
-    if(cell.metadata.command.startsWith(LanguageCommand.clear)){
-        clearOutput = true
+    if (cell.metadata?.command?.startsWith(LanguageCommand.clear)) {
+        clearOutput = true;
     }
     const filename = path.join(tempDir, `main`);
     mkdirSync(tempDir, { recursive: true });
     writeFileSync(filename, main);
     chmodSync(filename, 0o755);
 
-    return {stream: spawn(prog, [filename], {cwd: tempDir}), clearOutput};
+    return { stream: spawn(prog, [filename], { cwd: tempDir }), clearOutput };
 };
-

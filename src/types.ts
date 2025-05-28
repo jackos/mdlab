@@ -1,4 +1,4 @@
-import { NotebookCell } from "vscode";
+import { NotebookCell } from 'vscode';
 
 export interface Cell {
     index: number;
@@ -7,37 +7,39 @@ export interface Cell {
 }
 
 export interface ChatResponse {
-    id: string,
-    object: string,
-    created: number,
-    choices: [{
-        index: 0,
-        message: {
-            role: string,
-            content: string,
+    id: string;
+    object: string;
+    created: number;
+    choices: [
+        {
+            index: 0;
+            message: {
+                role: string;
+                content: string;
+            };
+            finish_reason: string;
         },
-        finish_reason: string
-    }],
+    ];
     usage: {
-        prompt_tokens: number,
-        completion_tokens: number,
-        total_tokens: number
-    }
+        prompt_tokens: number;
+        completion_tokens: number;
+        total_tokens: number;
+    };
 }
 
 export interface ChatRequest {
-    model: string,
-    messages: ChatMessage[]
+    model: string;
+    messages: ChatMessage[];
 }
 
 export interface ChatMessage {
-    role: string,
-    content: string,
+    role: string;
+    content: string;
 }
 
 export enum LanguageCommand {
-    clear = "clear",
-    skip = "skip",
-    create = "create",
-    once = "once",
+    clear = 'clear',
+    skip = 'skip',
+    create = 'create',
+    once = 'once',
 }

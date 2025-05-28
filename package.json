@@ -2,7 +2,7 @@
   "name": "mdlab",
   "displayName": "Markdown Lab",
   "publisher": "jackos",
-  "version": "0.6.20",
+  "version": "0.7.0",
   "description": "Run markdown code blocks interactively in a notebook with any programming language, and generate code blocks with LLMs.",
   "main": "./out/extension.js",
   "icon": "mdlab.png",
@@ -61,6 +61,11 @@
           "default": "",
           "description": "Set up an API key at: https://console.groq.com/keys"
         },
+        "mdlab.groqModel": {
+          "type": "string",
+          "default": "llama3-8b-8192",
+          "description": "Groq model to use. Available models: llama3-8b-8192, llama3-70b-8192, llama-3.1-8b-instant, llama-3.3-70b-versatile, gemma2-9b-it, qwen-qwq-32b, deepseek-r1-distill-llama-70b, mistral-saba-24b, and more. Check https://console.groq.com/docs/models for the full list."
+        },
         "mdlab.openaiModel": {
           "type": "string",
           "default": "gpt-4-turbo",
@@ -106,9 +111,13 @@
         "firstLine": "^#!.*\\b(openai)\\b"
       },
       {
-        "id": "llama3-8b",
+        "id": "groq",
+        "aliases": [
+          "Groq",
+          "groq"
+        ],
         "extensions": [],
-        "firstLine": "^#!.*\\b(llama3-8b)\\b"
+        "firstLine": "^#!.*\\b(groq)\\b"
       }
     ],
     "notebooks": [
@@ -129,13 +138,22 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "package": "vsce package",
-    "install-extension": "code --install-extension $(ls mdlab-*) --force",
-    "i": "npm run package && npm run install-extension"
+    "install-extension": "cursor --install-extension $(ls mdlab-*) --force",
+    "i": "npm run package && npm run install-extension",
+    "test": "npm run compile && node ./out/kernel-e2e.test.js",
+    "lint": "eslint src --ext .ts,.tsx",
+    "lint:fix": "eslint src --ext .ts,.tsx --fix",
+    "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,json}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,js,jsx,json}\""
   },
   "devDependencies": {
-    "@types/node": "^22.13.1",
+    "@types/node": "^22.15.23",
     "@types/vscode": "^1.96.2",
-    "eslint": "^9.20.0",
-    "typescript": "^5.7.3"
+    "@typescript-eslint/eslint-plugin": "^8.33.0",
+    "@typescript-eslint/parser": "^8.33.0",
+    "eslint": "^9.27.0",
+    "prettier": "^3.5.3",
+    "typescript": "^5.8.3",
+    "@vscode/vsce": "^3.4.2"
   }
 }

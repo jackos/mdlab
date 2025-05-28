@@ -1,45 +1,71 @@
-import { commands, Uri, ViewColumn, window, workspace } from 'vscode';
+import * as vscode from 'vscode';
 import { getTempPath } from '../config';
-import * as path from 'path';
 import { lastRunLanguage } from '../kernel';
-import { spawnSync } from 'child_process';
-import { rename, rmSync } from 'fs';
+import { outputChannel } from '../utils';
+import path from 'path';
 
-export const openMain = async () => {
-    let dir = getTempPath();
-    let main: string;
-    switch (lastRunLanguage) {
-        case "":
-            window.showWarningMessage("No cell has run yet, run a cell before trying to open temp file");
-            return;
-        case "rust":
-            main = path.join(dir, 'src', 'main.rs');
-            let mainFormatted = path.join(dir, 'src', 'main-formatted.rs');
-            rename(mainFormatted, main, () => { console.log("moved file"); });
-            spawnSync('cargo', ['fmt', '--manifest-path', `${dir}/Cargo.toml`]);
-            break;
-        case "go":
-            main = path.join(dir, 'main.go');
-            break;
-        case "python":
-            main = path.join(dir, 'main.py');
-            break;
-        case "mojo":
-            main = path.join(dir, 'main.mojo');
-            break;
-        case "shell":
-            main = path.join(dir, 'main');
-            break;
-        default:
-            window.showErrorMessage("Language not implemented in `src/commands/openMain`, check folder in your explorer");
-            return;
-    }
-
-    workspace.updateWorkspaceFolders(workspace.workspaceFolders ? workspace.workspaceFolders.length : 0, null, { uri: Uri.parse(dir) });
-    workspace.openTextDocument(main).then(doc => {
-        window.showTextDocument(doc, ViewColumn.Beside, true);
-    });
-    if (lastRunLanguage === "rust") {
-        commands.executeCommand("rust-analyzer.reload");
-    }
+const LANGUAGE_FILE_MAP: Record<string, string> = {
+    rust: 'main.rs',
+    go: 'main.go',
+    javascript: 'main.js',
+    typescript: 'main.ts',
+    python: 'mdlab.py',
+    mojo: 'main.mojo',
+    shell: 'main.sh',
 };
+
+export async function openMain(): Promise<void> {
+    try {
+        const tempPath = getTempPath();
+        const fileName = getMainFileName();
+
+        if (!fileName) {
+            vscode.window.showInformationMessage(
+                'No supported language file found. Run a code cell first.'
+            );
+            return;
+        }
+
+        const filePath = path.join(tempPath, fileName);
+        outputChannel.appendLine(`Opening main file: ${filePath}`);
+
+        // Add temp folder to workspace
+        await addTempFolderToWorkspace(tempPath);
+
+        // Open the file
+        const document = await vscode.workspace.openTextDocument(filePath);
+        await vscode.window.showTextDocument(document);
+
+        outputChannel.appendLine('Main file opened successfully');
+    } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        outputChannel.appendLine(`Error in openMain: ${errorMessage}`);
+        vscode.window.showErrorMessage(`Failed to open main file: ${errorMessage}`);
+    }
+}
+
+function getMainFileName(): string | null {
+    return LANGUAGE_FILE_MAP[lastRunLanguage] || null;
+}
+
+async function addTempFolderToWorkspace(tempPath: string): Promise<void> {
+    const workspaceFolders = vscode.workspace.workspaceFolders || [];
+    const tempUri = vscode.Uri.file(tempPath);
+
+    // Check if temp folder is already in workspace
+    const isAlreadyInWorkspace = workspaceFolders.some(
+        (folder: vscode.WorkspaceFolder) => folder.uri.fsPath === tempPath
+    );
+
+    if (!isAlreadyInWorkspace) {
+        const success = vscode.workspace.updateWorkspaceFolders(workspaceFolders.length, null, {
+            uri: tempUri,
+        });
+
+        if (!success) {
+            throw new Error('Failed to add temp folder to workspace');
+        }
+
+        outputChannel.appendLine(`Added ${tempPath} to workspace`);
+    }
+}

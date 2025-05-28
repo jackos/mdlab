@@ -26,8 +26,9 @@ When you right-click on a file and select `Reopen Editor With...` you can `confi
 
 ### Groq
 
-- [Set up a Groq key here](https://platform.openai.com/account/api-keys) and change the setting: `mdlab: Groq key`
-- Select `llama3-8b` as your language and ask it a question
+- [Set up a Groq key here](https://console.groq.com/keys) and change the setting: `mdlab: Groq key`
+- Default model is `llama3-8b-8192`, change the setting with `mdlab: groq model` to use other models like `llama3-70b-8192`, `llama-3.1-8b-instant`, `gemma2-9b-it`, `qwen-qwq-32b`, etc.
+- Select `groq` as your language and ask it a question
 - Run the code blocks it generates for you
 
 ## How it works
@@ -50,7 +51,7 @@ Press `alt+o` to open up the source code being used to generate outputs, which w
 
 ## Language Support
 
-It's very simple to add your own language, look inside [src/languages/rust.ts](https://github.com/jackos/mdl/blob/main/src/languages/python.ts) for an example, then add your language to the switch statement in [`src/kernel.ts`](https://github.com/jackos/mdl/blob/main/src/kernel.ts). PRs welcomed!
+It's very simple to add your own language, look inside [src/languages/rust.ts](https://github.com/jackos/mdlab/blob/main/src/languages/python.ts) for an example, then add your language to the switch statement in the [`src/kernel.ts`](https://github.com/jackos/mdlab/blob/main/src/kernel.ts) `createLanguageProcess` function. PRs welcomed!
 
 This README.md was created with `mdlab`, these are some special features for different languages:
 
@@ -70,20 +71,9 @@ x
 
 ### Mojo
 
-Mojo is a new Systems programming language for AI developers with Python syntax and interop. 
+Mojo is a new Systems programming language for AI developers with Python syntax. 
 
 It works with top level code and has some extra features like printing the last line.
-
-Any variables you initialize in a Python cell will be available from Mojo via the `py` module:
-
-```mojo
-var res = String("Adding a String from Python to a Mojo variable: ") + py.x
-res
-```
-
-```text
-Adding a String from Python to a Mojo variable: [8, 7, 6, 5]
-```
 
 LSP features don't work yet
 
@@ -106,7 +96,7 @@ x
 
 ### Go
 
-```llama3-8b
+```groq
 You can write top level code in Go:
 ```
 
@@ -169,3 +159,43 @@ echo "[ "${reversed[@]} "]"
 ```text
 [ 8 7 6 5 ]
 ```
+
+## Tests
+
+The project includes end-to-end tests that verify the expected outputs for all
+supported languages. To run the test suite:
+
+```bash
+npm run test
+```
+
+```plaintext
+🧪 Running Kernel End-to-End Tests
+
+✅ Python: Simple print statement
+✅ Python: Variables and arithmetic
+✅ Python: Functions
+✅ Python: Import math module
+✅ Python: Error handling
+✅ Python: List comprehensions
+✅ Python: Dictionary operations
+✅ Python: Class definition
+✅ JavaScript: Console.log
+✅ JavaScript: Arrow functions
+✅ JavaScript: Array methods
+✅ JavaScript: Object destructuring
+✅ JavaScript: Promises
+✅ Bash: Echo command
+✅ Bash: Variables
+✅ Bash: Arithmetic
+✅ Bash: For loop
+✅ Bash: Function
+✅ Go: Hello World
+✅ Go: Functions and variables
+✅ Rust: Hello World
+✅ Rust: Functions
+
+📊 Results: 22 passed, 0 failed
+```
+
+If you don't have a language installed, the tests for that language will be skipped.

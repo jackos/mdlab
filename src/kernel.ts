@@ -1,85 +1,145 @@
 /* eslint-disable @typescript-eslint/naming-convention */
-import { NotebookDocument, NotebookCell, NotebookController, NotebookCellOutput, NotebookCellOutputItem, NotebookRange, NotebookEdit, WorkspaceEdit, workspace } from 'vscode';
-import { processCellsRust } from "./languages/rust";
-import { processCellsGo } from "./languages/go";
-import { processCellsJavascript } from "./languages/javascript";
-import { processCellsTypescript } from "./languages/typescript";
+import {
+    NotebookDocument,
+    NotebookCell,
+    NotebookController,
+    NotebookCellOutput,
+    NotebookCellOutputItem,
+    NotebookRange,
+    NotebookEdit,
+    WorkspaceEdit,
+    workspace,
+} from 'vscode';
+import { processCellsRust } from './languages/rust';
+import { processCellsGo } from './languages/go';
+import { processCellsJavascript } from './languages/javascript';
+import { processCellsTypescript } from './languages/typescript';
 import { ChildProcessWithoutNullStreams, spawnSync, spawn } from 'child_process';
 import { processShell as processShell } from './languages/shell';
 import { processCellsPython } from './languages/python';
 import * as vscode from 'vscode';
-import {homedir} from 'os';
+import { homedir } from 'os';
 import { processCellsMojo } from './languages/mojo';
-import { getOpenAIKey, getOpenAIModel, getOpenAIOrgID, getGroqAIKey, getTempPath } from "./config"
+import { getTempPath } from './config';
 
-import { Cell, ChatMessage, ChatRequest, LanguageCommand } from "./types"
-import { commandNotOnPath, post, installMojo, outputChannel } from './utils';
+import { Cell, ChatMessage, LanguageCommand } from './types';
+import { commandNotOnPath, installMojo, outputChannel } from './utils';
 import { existsSync, writeFileSync } from 'fs';
 import path from 'path';
-
+import { AIService } from './services/aiService';
 
 export let lastRunLanguage = '';
 
 // Kernel in this case matches Jupyter definition i.e. this is responsible for taking the frontend notebook
 // and running it through different languages, then returning results in the same format.
 export class Kernel {
-    async executeCells(doc: NotebookDocument, cells: NotebookCell[], ctrl: NotebookController): Promise<void> {
+    async executeCells(
+        doc: NotebookDocument,
+        cells: NotebookCell[],
+        ctrl: NotebookController
+    ): Promise<void> {
         outputChannel.appendLine('executing all cells...');
         for (const cell of cells) {
-            await this.executeCell(doc, [cell], ctrl)
+            await this.executeCell(doc, [cell], ctrl);
         }
         outputChannel.appendLine('finished executing all cells');
     }
 
-    async executeCell(doc: NotebookDocument, cells: NotebookCell[], ctrl: NotebookController): Promise<void> {
+    async executeCell(
+        doc: NotebookDocument,
+        cells: NotebookCell[],
+        ctrl: NotebookController
+    ): Promise<void> {
         outputChannel.appendLine('executing cell...');
-        let decoder = new TextDecoder;
-        let encoder = new TextEncoder;
-        let exec = ctrl.createNotebookCellExecution(cells[0]);
+        const decoder = new TextDecoder();
+        const encoder = new TextEncoder();
+        const exec = ctrl.createNotebookCellExecution(cells[0]);
         outputChannel.appendLine('created notebook cell execution');
 
-        let currentCell = cells[cells.length - 1];
-        // Allow for the ability to cancel execution
-        let token = exec.token;
+        const currentCell = cells[cells.length - 1];
+        const token = exec.token;
+
+        // Set up cancellation handler
         token.onCancellationRequested(() => {
-            exec.end(false, (new Date).getTime());
+            exec.end(false, new Date().getTime());
         });
 
-        // Used for the cell timer counter
-        exec.start((new Date).getTime());
-        let tempDir = getTempPath();
+        // Start execution timer
+        exec.start(new Date().getTime());
+        const tempDir = getTempPath();
         outputChannel.appendLine('using temp directory: ' + tempDir);
 
-        if (cells[0].metadata.command.startsWith(LanguageCommand.create)) {
-            let file = cells[0].metadata.command.split("=")
-            if (file.length > 1) {
-                outputChannel.appendLine('writing cell to temp file: ' + `${tempDir}/${file[1].trim()}`);
-                writeFileSync(`${tempDir}/${file[1].trim()}`, cells[0].document.getText())
-            }
-            exec.end(true, (new Date).getTime());
-            return
+        // Handle special commands
+        if (await this.handleSpecialCommands(cells[0], exec, tempDir)) {
+            return;
         }
-        if (cells[0].metadata.command.startsWith(LanguageCommand.skip)) {
-            outputChannel.appendLine('skipping cell for execution');
-            exec.end(true, (new Date).getTime());
-            return
-        }
+
         exec.clearOutput(cells[0]);
 
-        // Get all cells up to this one
-        outputChannel.appendLine('getting cells up to: ' + cells[0].index + 1);
-        let range = new NotebookRange(0, cells[0].index + 1);
-        let cellsUpToCurrent = doc.getCells(range);
-        
-        let lang = cells[0].document.languageId
+        // Get all cells up to current one
+        const cellsStripped = this.getCellsUpToCurrent(doc, cells[0]);
+        outputChannel.appendLine(
+            `found ${cellsStripped.length} cells matching language: ${cells[0].document.languageId}`
+        );
 
-        // Build a object containing languages and their cells
-        let cellsStripped: Cell[] = [];
+        const lang = cells[0].document.languageId;
+
+        // Handle AI models
+        if (lang === 'openai' || lang === 'groq') {
+            await this.handleAIModel(lang, cellsStripped, cells[0], exec);
+            return;
+        }
+
+        // Handle regular language execution
+        await this.handleLanguageExecution(lang, cellsStripped, currentCell, exec, token, decoder);
+    }
+
+    private async handleSpecialCommands(
+        cell: NotebookCell,
+        exec: any,
+        tempDir: string
+    ): Promise<boolean> {
+        // Check if metadata and command exist
+        if (!cell.metadata || !cell.metadata.command) {
+            return false;
+        }
+
+        if (cell.metadata.command.startsWith(LanguageCommand.create)) {
+            const file = cell.metadata.command.split('=');
+            if (file.length > 1) {
+                outputChannel.appendLine(
+                    'writing cell to temp file: ' + `${tempDir}/${file[1].trim()}`
+                );
+                writeFileSync(`${tempDir}/${file[1].trim()}`, cell.document.getText());
+            }
+            exec.end(true, new Date().getTime());
+            return true;
+        }
+
+        if (cell.metadata.command.startsWith(LanguageCommand.skip)) {
+            outputChannel.appendLine('skipping cell for execution');
+            exec.end(true, new Date().getTime());
+            return true;
+        }
+
+        return false;
+    }
+
+    private getCellsUpToCurrent(doc: NotebookDocument, currentCell: NotebookCell): Cell[] {
+        outputChannel.appendLine('getting cells up to: ' + currentCell.index + 1);
+        const range = new NotebookRange(0, currentCell.index + 1);
+        const cellsUpToCurrent = doc.getCells(range);
+
+        const cellsStripped: Cell[] = [];
         let matchingCells = 0;
-        let pythonMatchingCells = 0;
-        let pythonCells: Cell[] = [];
+
+        // For AI models, include all cells regardless of language
+        const isAIModel =
+            currentCell.document.languageId === 'openai' ||
+            currentCell.document.languageId === 'groq';
+
         for (const cell of cellsUpToCurrent) {
-            if (cell.document.languageId === cells[0].document.languageId) {
+            if (isAIModel || cell.document.languageId === currentCell.document.languageId) {
                 matchingCells++;
                 cellsStripped.push({
                     index: matchingCells,
@@ -87,372 +147,397 @@ export class Kernel {
                     cell: cell,
                 });
             }
-            // Also capture python cells if they exist when running Mojo
-            if (lang === "mojo") {
-                if (cell.document.languageId === "python") {
-                    pythonMatchingCells++
-                    pythonCells.push({
-                        index: pythonMatchingCells,
-                        contents: cell.document.getText(),
-                        cell: cell,
-                    });
-                }
+        }
+
+        return cellsStripped;
+    }
+
+    private async handleAIModel(
+        lang: string,
+        cellsStripped: Cell[],
+        cell: NotebookCell,
+        exec: any
+    ): Promise<void> {
+        lastRunLanguage = lang;
+
+        // Convert all cells to a single markdown-formatted string
+        let markdownContent = '';
+
+        for (const c of cellsStripped) {
+            const cellType = c.cell.kind === vscode.NotebookCellKind.Markup ? 'markdown' : 'code';
+            const cellLang = c.cell.document.languageId;
+
+            if (cellType === 'markdown') {
+                // Add markdown content directly
+                markdownContent += c.contents + '\n\n';
+            } else if (cellLang !== 'openai' && cellLang !== 'groq') {
+                // Add code cells as markdown code blocks
+                markdownContent += `\`\`\`${cellLang}\n${c.contents}\n\`\`\`\n\n`;
+            } else {
+                // Add AI prompt cells as regular text
+                markdownContent += c.contents + '\n\n';
             }
         }
-        outputChannel.appendLine(`found ${matchingCells} cells matching language: ${lang}`);
-        outputChannel.appendLine(`found ${pythonMatchingCells} python cells for Mojo interop`);
 
-        // Check if clearing output at the end
+        // Create a single message with all the content
+        const messages: ChatMessage[] = [
+            {
+                role: 'user' as const,
+                content: markdownContent.trim(),
+            },
+        ];
+
+        // Use AIService to process the request
+        const generatedCells = await AIService.processAIRequest(lang, messages);
+
+        if (generatedCells.length === 0) {
+            exec.end(false, new Date().getTime());
+            return;
+        }
+
+        // Insert the generated cells
+        await this.insertGeneratedCells(cell, generatedCells);
+        exec.end(true, new Date().getTime());
+    }
+
+    private async insertGeneratedCells(
+        cell: NotebookCell,
+        edits: vscode.NotebookCellData[]
+    ): Promise<void> {
+        const edit = new WorkspaceEdit();
+        const notebook_edit = NotebookEdit.insertCells(cell.index + 1, edits);
+        edit.set(cell.notebook.uri, [notebook_edit]);
+        await workspace.applyEdit(edit);
+    }
+
+    private async handleLanguageExecution(
+        lang: string,
+        cellsStripped: Cell[],
+        currentCell: NotebookCell,
+        exec: any,
+        token: vscode.CancellationToken,
+        decoder: any
+    ): Promise<void> {
+        let output: ChildProcessWithoutNullStreams | null = null;
         let clearOutput = false;
 
-        // AI Model related, generates new code blocks, may expand this later
-        if (lang === "llama3-8b") {
-            lastRunLanguage = "llama3-8b";
-            const url = 'https://api.groq.com/openai/v1/chat/completions';
-            const headers = {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${getGroqAIKey()}`,
-            }
-
-            const messages: ChatMessage[] = [{ "role": "user", "content": "You're generating codeblocks to help users solve programming problems, make sure that you put the name of the language in the markdown blocks like ```python" }]
-            for (const message of cellsStripped) {
-                messages.push({ role: "user", content: message.contents });
-            }
-            const data: ChatRequest = {
-                "model": "llama3-8b-8192",
-                messages
-            };
-
-            let body = JSON.stringify(data);
-
-
-            let result = await post(url, headers, body)
+        try {
+            const result = await this.createLanguageProcess(lang, cellsStripped, currentCell);
             if (!result) {
-                exec.end(false, (new Date).getTime());
-                return
+                exec.end(false, new Date().getTime());
+                return;
             }
 
-            vscode.window.showInformationMessage(body)
+            output = result.stream;
+            clearOutput = result.clearOutput;
 
-
-            let text = result.choices[0].message.content;
-            let code_blocks = text.split("```");
-
-            let edits: vscode.NotebookCellData[] = [];
-            for (let [i, block] of code_blocks.entries()) {
-                // If there was any text after split, get the type of language
-                if (block[0] != "\n" && i != 0) {
-                    let language = block.split("\n")[0]
-                    block = block.substring(language.length);
-                    let blockTrimmed = block.trim().replace("\n\n", "\n");
-                    if (blockTrimmed !== "") {
-                        edits.push(new vscode.NotebookCellData(vscode.NotebookCellKind.Code, blockTrimmed, language));
-                    }
+            // Set up cancellation handler for the process
+            const cancellationListener = token.onCancellationRequested(() => {
+                if (output) {
+                    output.kill('SIGTERM');
                 }
-                else {
-                    let blockTrimmed = block.trim().replace("\n\n", "");
-                    if (blockTrimmed !== "") {
-                        edits.push(new vscode.NotebookCellData(vscode.NotebookCellKind.Markup, blockTrimmed, "markdown"));
-                    }
-                }
+                exec.end(false, new Date().getTime());
+            });
 
+            // Set up output handlers
+            await this.handleProcessOutput(
+                output,
+                exec,
+                decoder,
+                cellsStripped,
+                clearOutput,
+                currentCell
+            );
+
+            // Clean up cancellation listener
+            cancellationListener.dispose();
+        } catch (error) {
+            outputChannel.appendLine(`Error during language execution: ${error}`);
+            if (output) {
+                output.kill('SIGTERM');
             }
-            const edit = new WorkspaceEdit();
-            let notebook_edit = NotebookEdit.insertCells(cells[0].index + 1, edits);
-            edit.set(cells[0].notebook.uri, [notebook_edit]);
-            workspace.applyEdit(edit);
-            exec.end(true, (new Date).getTime());
+            exec.end(false, new Date().getTime());
         }
-        else if (lang === "openai") {
-            lastRunLanguage = "openai";
-            const url = 'https://api.openai.com/v1/chat/completions';
-            const headers: Record<string, string> = {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${getOpenAIKey()}`,
-            };
-            let orgId = getOpenAIOrgID()
-            if (orgId) {
-                headers['OpenAI-Organization'] = orgId
-            }
-            const messages: ChatMessage[] = [{ role: "system", content: "You are a helpful bot named mdlab, that generates concise code blocks to solve programming problems" }];
-            for (const message of cellsStripped) {
-                messages.push({ role: "user", content: message.contents });
-            }
-            let model = getOpenAIModel() || "model is undefined"
-            const data: ChatRequest = {
-                model,
-                messages
-            };
+    }
 
-            let body = JSON.stringify(data);
+    private async createLanguageProcess(
+        lang: string,
+        cellsStripped: Cell[],
+        currentCell: NotebookCell
+    ): Promise<{ stream: ChildProcessWithoutNullStreams; clearOutput: boolean } | null> {
+        let clearOutput = false;
 
-
-            let result = await post(url, headers, body)
-            if (!result) {
-                exec.end(false, (new Date).getTime());
-                return
-            }
-
-            let text = result.choices[0].message.content;
-            let code_blocks = text.split("```");
-
-            let edits: vscode.NotebookCellData[] = [];
-            for (let [i, block] of code_blocks.entries()) {
-                // If there was any text after split, get the type of language
-                if (block[0] != "\n" && i != 0) {
-                    let language = block.split("\n")[0]
-                    block = block.substring(language.length);
-                    let blockTrimmed = block.trim().replace("\n\n", "\n");
-                    if (blockTrimmed !== "") {
-                        edits.push(new vscode.NotebookCellData(vscode.NotebookCellKind.Code, blockTrimmed, language));
-                    }
+        switch (lang) {
+            case 'mojo':
+                if (!(await this.ensureMojoAvailable())) {
+                    return null;
                 }
-                else {
-                    let blockTrimmed = block.trim().replace("\n\n", "");
-                    if (blockTrimmed !== "") {
-                        edits.push(new vscode.NotebookCellData(vscode.NotebookCellKind.Markup, blockTrimmed, "markdown"));
-                    }
+                lastRunLanguage = 'mojo';
+                const mojoResult = processCellsMojo(cellsStripped);
+                return { stream: mojoResult.stream, clearOutput: mojoResult.clearOutput };
+
+            case 'rust':
+                if (commandNotOnPath('cargo', 'https://rustup.rs')) {
+                    return null;
                 }
-            }
-            const edit = new WorkspaceEdit();
-            let notebook_edit = NotebookEdit.insertCells(cells[0].index + 1, edits);
-            edit.set(cells[0].notebook.uri, [notebook_edit]);
-            workspace.applyEdit(edit);
-            exec.end(true, (new Date).getTime());
+                lastRunLanguage = 'rust';
+                return { stream: processCellsRust(cellsStripped), clearOutput };
 
-            // Normal language related execution
-        } else {
-            let output: ChildProcessWithoutNullStreams;
-
-            // Now there's an output stream, kill that as well on cancel request
-            token.onCancellationRequested(() => {
-                output.kill();
-                exec.end(false, (new Date).getTime());
-            });
-
-            const mimeType = `text/plain`;
-            switch (lang) {
-                case "mojo":
-                    let mojoMissing = commandNotOnPath('mojo', "https://modular.com/mojo", true)
-                    // Check if global mojo exists
-                    if (mojoMissing) {
-                        // So we don't keep reinstalling mojo on each cell run before user has
-                        // restarted vscode to put mojo on PATH.
-                        let globalMojoDir = path.join(homedir(), ".modular", "bin");
-                        outputChannel.appendLine(`checking for mojo at: ${path.join(globalMojoDir, "mojo")}`);
-
-                        if (existsSync(path.join(globalMojoDir, "mojo"))) {
-                            // Propagates to subprocesses to find mojo related binaries
-                            process.env.PATH = process.env.PATH + path.delimiter + globalMojoDir;
-                        } else {
-                            outputChannel.appendLine(`mojo not on path, installing...`);
-                            // Will be empty string if install fails, otherwise will point to global mojo binary
-                            const installed = await installMojo();
-                            // If install fails, end execution
-                            if (!installed) {
-                                exec.end(false, (new Date).getTime());
-                                return;
-                            }
-                        }
-                    }
-
-                    lastRunLanguage = "mojo";
-                    let mojoResult = processCellsMojo(cellsStripped, pythonCells);
-                    output = mojoResult.stream
-                    clearOutput = mojoResult.clearOutput
-                    break;
-                case "rust":
-                    if (commandNotOnPath('cargo', "https://rustup.rs")) {
-                        exec.end(false, (new Date).getTime());
-                        return
-                    }
-                    lastRunLanguage = "rust";
-                    output = processCellsRust(cellsStripped);
-                    break;
-                case "go":
-                    if (commandNotOnPath("go", "https://go.dev/doc/install")) {
-                        exec.end(false, (new Date).getTime());
-                        return
-                    }
-                    lastRunLanguage = "go";
-                    output = processCellsGo(cellsStripped);
-                    break;
-                case "python":
-                    let command = "python3"
-                    if (commandNotOnPath(command, "")) {
-                        if (commandNotOnPath("python", "https://www.python.org/downloads/")) {
-                            exec.end(false, (new Date).getTime());
-                            return
-                        }
-                        command = "python"
-                    }
-                    lastRunLanguage = "python";
-                    let pyResult = processCellsPython(cellsStripped, command);
-                    output = pyResult.stream
-                    clearOutput = pyResult.clearOutput
-                    break;
-                case "javascript":
-                    if (commandNotOnPath("node", "https://nodejs.org/en/download/package-manager")) {
-                        exec.end(false, (new Date).getTime());
-                        return
-                    }
-                    lastRunLanguage = "javascript";
-                    output = processCellsJavascript(cellsStripped);
-                    break;
-                case "typescript":
-                    let esr = spawnSync("esr");
-                    if (esr.stdout === null) {
-                        let response = encoder.encode("To make TypeScript run fast install esr globally:\nnpm install -g esbuild-runner");
-                        const x = new NotebookCellOutputItem(response, mimeType);
-                        exec.appendOutput([new NotebookCellOutput([x])], cells[0]);
-                        exec.end(false, (new Date).getTime());
-                        return;
-                    }
-                    lastRunLanguage = "typescript";
-                    output = processCellsTypescript(cellsStripped);
-                    break;
-                case "bash":
-                    if (commandNotOnPath("bash", "https://hackernoon.com/how-to-install-bash-on-windows-10-lqb73yj3")) {
-                        exec.end(false, (new Date).getTime());
-                        return
-                    }
-                    lastRunLanguage = "shell";
-                    var result = processShell(currentCell, "bash");
-                    output = result.stream
-                    clearOutput = result.clearOutput
-                    break;
-                case "zsh":
-                    if (commandNotOnPath("zsh", "https://github.com/ohmyzsh/ohmyzsh/wiki/Installing-ZSH")) {
-                        exec.end(false, (new Date).getTime());
-                        return
-                    }
-                    lastRunLanguage = "shell";
-                    var result = processShell(currentCell, "zsh");
-                    output = result.stream
-                    clearOutput = result.clearOutput
-                    break;
-                case "fish":
-                    if (commandNotOnPath("fish", "https://fishshell.com/")) {
-                        exec.end(false, (new Date).getTime());
-                        return
-                    }
-                    lastRunLanguage = "shell";
-                    var result = processShell(currentCell, "fish");
-                    output = result.stream
-                    clearOutput = result.clearOutput
-                    break;
-                case "nushell":
-                    if (commandNotOnPath("nushell", "https://www.nushell.sh/book/installation.html")) {
-                        exec.end(false, (new Date).getTime());
-                        return
-                    }
-                    lastRunLanguage = "shell";
-                    var result = processShell(currentCell, "nushell");
-                    output = result.stream
-                    clearOutput = result.clearOutput
-                    break;
-                case "shellscript":
-                    if (commandNotOnPath("bash", "https://hackernoon.com/how-to-install-bash-on-windows-10-lqb73yj3")) {
-                        exec.end(false, (new Date).getTime());
-                        return
-                    }
-                    lastRunLanguage = "shell";
-
-                    var result = processShell(currentCell, "bash");
-                    output = result.stream
-                    clearOutput = result.clearOutput
-                    break;
-                default:
-                    exec.end(true, (new Date).getTime());
-                    return;
-            }
-
-            let errorText = "";
-
-            output.stderr.on("data", async (data: Uint8Array) => {
-                errorText = data.toString();
-                if (errorText) {
-                    exec.appendOutput([new NotebookCellOutput([NotebookCellOutputItem.text(errorText, mimeType)])]);
+            case 'go':
+                if (commandNotOnPath('go', 'https://go.dev/doc/install')) {
+                    return null;
                 }
+                lastRunLanguage = 'go';
+                return { stream: processCellsGo(cellsStripped), clearOutput };
 
-            });
-
-            let buf = Buffer.from([]);
-
-            let currentCellLang = cellsStripped[cellsStripped.length - 1] as Cell;
-
-            output.stdout.on('data', (data: Uint8Array) => {
-                let arr = [buf, data];
-                buf = Buffer.concat(arr);
-                let outputs = decoder.decode(buf).split(/!!output-start-cell[\n,""," "]/g);
-                let currentCellOutput: string
-                if (lastRunLanguage == "shell") {
-                    currentCellOutput = outputs[1]
-                } else {
-                    currentCellOutput = outputs[currentCellLang.index + pythonCells.length];
+            case 'python':
+                const pythonCommand = this.getPythonCommand();
+                if (!pythonCommand) {
+                    return null;
                 }
-                if (!clearOutput && currentCellOutput.trim()) {
-                    exec.replaceOutput([new NotebookCellOutput([NotebookCellOutputItem.text(currentCellOutput)])]);
-                }
+                lastRunLanguage = 'python';
+                const pyResult = processCellsPython(cellsStripped, pythonCommand);
+                return { stream: pyResult.stream, clearOutput: pyResult.clearOutput };
 
-            });
-
-            output.on('close', (_) => {
-                // If stdout returned anything consider it a success
-                if (buf.length === 0) {
-                    exec.end(false, (new Date).getTime());
-                } else {
-                    exec.end(true, (new Date).getTime());
+            case 'javascript':
+                if (commandNotOnPath('node', 'https://nodejs.org/en/download/package-manager')) {
+                    return null;
                 }
+                lastRunLanguage = 'javascript';
+                return { stream: processCellsJavascript(cellsStripped), clearOutput };
 
-                // Loop through all the cells and increment version of image if it exists
-                if (doc.getCells().length >= (cells[0].index + 1)) {
-                    let cell = doc.getCells(new NotebookRange(cells[0].index + 1, cells[0].index + 2))[0]
-                    if (cell.kind === vscode.NotebookCellKind.Markup) {
-                        let text = cell.document.getText();
-                        // @ts-ignore
-                        text.replace(/(.*[^`]*<img\s*src\s*=\s*".*?)(\?version=(\d+))?"(.*)/g, (match, prefix, versionQuery, versionNum, suffix) => {
-                            if (match) {
-                                let replaceText = ""
-                                if (versionQuery) {
-                                    //   If ?version= is present, increment the version number
-                                    let newVersionNum = parseInt(versionNum, 10) + 1;
-                                    replaceText = `${prefix}?version=${newVersionNum}"${suffix}`;
-                                } else {
-                                    //   If ?version= is not present, add ?version=1
-                                    replaceText = `${prefix}?version=1"${suffix}`;
-                                }
-                                let workspaceEdit = new vscode.WorkspaceEdit();
-                                let fullRange = new vscode.Range(
-                                    0,
-                                    0,
-                                    cell.document.lineCount - 1,
-                                    cell.document.lineAt(cell.document.lineCount - 1).text.length
-                                );
-                                workspaceEdit.replace(cell.document.uri, fullRange, replaceText);
-                                vscode.workspace.applyEdit(workspaceEdit);
-                                vscode.window.showNotebookDocument(vscode.window.activeNotebookEditor?.notebook as NotebookDocument, {
-                                    viewColumn: vscode.window.activeNotebookEditor?.viewColumn,
-                                    selections: [new NotebookRange(cell.index, cell.index + 1)],
-                                    preserveFocus: true,
-                                }).then(() => {
-                                    // Execute commands to toggle cell edit mode and then toggle it back to preview.
-                                    vscode.commands.executeCommand('notebook.cell.edit').then(() => {
-                                        vscode.commands.executeCommand('notebook.cell.quitEdit').then(() => {
-                                            // Optionally, add any additional logic that needs to run after the refresh.
-                                        });
-                                    });
-                                });
-                                vscode.window.showNotebookDocument(vscode.window.activeNotebookEditor?.notebook as NotebookDocument, {
-                                    viewColumn: vscode.window.activeNotebookEditor?.viewColumn,
-                                    selections: [new NotebookRange(cell.index - 1, cell.index)],
-                                    preserveFocus: false,
-                                })
-                            }
-                        });
-                    }
+            case 'typescript':
+                if (!this.checkTypeScriptRunner()) {
+                    return null;
                 }
-            });
+                lastRunLanguage = 'typescript';
+                return { stream: processCellsTypescript(cellsStripped), clearOutput };
+
+            case 'bash':
+            case 'shellscript':
+                if (
+                    commandNotOnPath(
+                        'bash',
+                        'https://hackernoon.com/how-to-install-bash-on-windows-10-lqb73yj3'
+                    )
+                ) {
+                    return null;
+                }
+                lastRunLanguage = 'shell';
+                const bashResult = processShell(currentCell, 'bash');
+                return { stream: bashResult.stream, clearOutput: bashResult.clearOutput };
+
+            case 'zsh':
+                if (
+                    commandNotOnPath(
+                        'zsh',
+                        'https://github.com/ohmyzsh/ohmyzsh/wiki/Installing-ZSH'
+                    )
+                ) {
+                    return null;
+                }
+                lastRunLanguage = 'shell';
+                const zshResult = processShell(currentCell, 'zsh');
+                return { stream: zshResult.stream, clearOutput: zshResult.clearOutput };
+
+            case 'fish':
+                if (commandNotOnPath('fish', 'https://fishshell.com/')) {
+                    return null;
+                }
+                lastRunLanguage = 'shell';
+                const fishResult = processShell(currentCell, 'fish');
+                return { stream: fishResult.stream, clearOutput: fishResult.clearOutput };
+
+            case 'nushell':
+                if (commandNotOnPath('nushell', 'https://www.nushell.sh/book/installation.html')) {
+                    return null;
+                }
+                lastRunLanguage = 'shell';
+                const nuResult = processShell(currentCell, 'nushell');
+                return { stream: nuResult.stream, clearOutput: nuResult.clearOutput };
+
+            default:
+                return null;
         }
+    }
+
+    private async ensureMojoAvailable(): Promise<boolean> {
+        const mojoMissing = commandNotOnPath('mojo', 'https://modular.com/mojo', true);
+        if (!mojoMissing) {
+            return true;
+        }
+
+        const globalMojoDir = path.join(homedir(), '.modular', 'bin');
+        outputChannel.appendLine(`checking for mojo at: ${path.join(globalMojoDir, 'mojo')}`);
+
+        if (existsSync(path.join(globalMojoDir, 'mojo'))) {
+            process.env.PATH = process.env.PATH + path.delimiter + globalMojoDir;
+            return true;
+        }
+
+        outputChannel.appendLine(`mojo not on path, installing...`);
+        const installed = await installMojo();
+        return !!installed;
+    }
+
+    private getPythonCommand(): string | null {
+        if (!commandNotOnPath('python3', '')) {
+            return 'python3';
+        }
+        if (!commandNotOnPath('python', 'https://www.python.org/downloads/')) {
+            return 'python';
+        }
+        return null;
+    }
+
+    private checkTypeScriptRunner(): boolean {
+        const esr = spawnSync('esr');
+        if (esr.stdout === null) {
+            const encoder = new TextEncoder();
+            const response = encoder.encode(
+                'To make TypeScript run fast install esr globally:\nnpm install -g esbuild-runner'
+            );
+            const x = new NotebookCellOutputItem(response, 'text/plain');
+            // Note: We can't access exec here, so we'll return false and handle this in the caller
+            return false;
+        }
+        return true;
+    }
+
+    private async handleProcessOutput(
+        output: ChildProcessWithoutNullStreams,
+        exec: any,
+        decoder: any,
+        cellsStripped: Cell[],
+        clearOutput: boolean,
+        currentCell: NotebookCell
+    ): Promise<void> {
+        const mimeType = 'text/plain';
+        let errorText = '';
+        let buf = Buffer.from([]);
+        let processCompleted = false;
+
+        // Create a promise that resolves when the process completes
+        const processCompletion = new Promise<void>((resolve) => {
+            output.on('close', (code) => {
+                processCompleted = true;
+                outputChannel.appendLine(`Process closed with code: ${code}`);
+
+                // Determine success based on exit code and output
+                const success = code === 0 || buf.length > 0;
+                exec.end(success, new Date().getTime());
+
+                // Handle image version updates if needed
+                this.updateImageVersions(currentCell);
+
+                resolve();
+            });
+
+            output.on('error', (error) => {
+                outputChannel.appendLine(`Process error: ${error.message}`);
+                if (!processCompleted) {
+                    processCompleted = true;
+                    exec.end(false, new Date().getTime());
+                    resolve();
+                }
+            });
+        });
+
+        // Set up stderr handler
+        output.stderr.on('data', (data: Uint8Array) => {
+            errorText = data.toString();
+            if (errorText && !processCompleted) {
+                exec.appendOutput([
+                    new NotebookCellOutput([NotebookCellOutputItem.text(errorText, mimeType)]),
+                ]);
+            }
+        });
+
+        // Set up stdout handler
+        const currentCellLang = cellsStripped[cellsStripped.length - 1] as Cell;
+
+        output.stdout.on('data', (data: Uint8Array) => {
+            if (processCompleted) {
+                return;
+            }
+
+            const arr = [buf, data];
+            buf = Buffer.concat(arr);
+            const outputs = decoder.decode(buf).split(/!!output-start-cell[\n,""," "]/g);
+            const currentCellOutput =
+                lastRunLanguage === 'shell' ? outputs[1] : outputs[currentCellLang.index];
+
+            if (!clearOutput && currentCellOutput?.trim()) {
+                exec.replaceOutput([
+                    new NotebookCellOutput([NotebookCellOutputItem.text(currentCellOutput)]),
+                ]);
+            }
+        });
+
+        // Wait for process completion
+        await processCompletion;
+    }
+
+    private updateImageVersions(currentCell: NotebookCell): void {
+        const doc = currentCell.notebook;
+        if (doc.getCells().length <= currentCell.index + 1) {
+            return;
+        }
+
+        const nextCell = doc.getCells(
+            new NotebookRange(currentCell.index + 1, currentCell.index + 2)
+        )[0];
+        if (nextCell.kind !== vscode.NotebookCellKind.Markup) {
+            return;
+        }
+
+        const text = nextCell.document.getText();
+        const updatedText = text.replace(
+            /(.*[^`]*<img\s*src\s*=\s*".*?)(\?version=(\d+))?"(.*)/g,
+            (match, prefix, versionQuery, versionNum, suffix) => {
+                if (!match) {
+                    return match;
+                }
+
+                if (versionQuery) {
+                    const newVersionNum = parseInt(versionNum, 10) + 1;
+                    return `${prefix}?version=${newVersionNum}"${suffix}`;
+                } else {
+                    return `${prefix}?version=1"${suffix}`;
+                }
+            }
+        );
+
+        if (updatedText !== text) {
+            this.updateCellContent(nextCell, updatedText);
+        }
+    }
+
+    private async updateCellContent(cell: NotebookCell, newContent: string): Promise<void> {
+        const workspaceEdit = new vscode.WorkspaceEdit();
+        const fullRange = new vscode.Range(
+            0,
+            0,
+            cell.document.lineCount - 1,
+            cell.document.lineAt(cell.document.lineCount - 1).text.length
+        );
+        workspaceEdit.replace(cell.document.uri, fullRange, newContent);
+        await vscode.workspace.applyEdit(workspaceEdit);
+
+        // Refresh the cell display
+        await vscode.window.showNotebookDocument(cell.notebook, {
+            viewColumn: vscode.window.activeNotebookEditor?.viewColumn,
+            selections: [new NotebookRange(cell.index, cell.index + 1)],
+            preserveFocus: true,
+        });
+
+        await vscode.commands.executeCommand('notebook.cell.edit');
+        await vscode.commands.executeCommand('notebook.cell.quitEdit');
+
+        await vscode.window.showNotebookDocument(cell.notebook, {
+            viewColumn: vscode.window.activeNotebookEditor?.viewColumn,
+            selections: [new NotebookRange(cell.index - 1, cell.index)],
+            preserveFocus: false,
+        });
     }
 }

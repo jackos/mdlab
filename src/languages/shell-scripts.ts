@@ -4,7 +4,7 @@ if [ -f "env_changes.sh" ]; then
 fi
 env | sort | awk -F '=' '{if ($2 ~ / /) printf "%s=\\"%s\\"\\n", $1, $2; else print $0}' > env_before.txt
 echo '!!output-start-cell'
-`
+`;
 
 export const env_after = `
 env | sort | awk -F '=' '{if ($2 ~ / /) printf "%s=\\"%s\\"\\n", $1, $2; else print $0}' > env_after.txt
@@ -20,4 +20,4 @@ unset_vars=$(comm -13 <(echo "$file2_words") <(echo "$file1_words") | awk '{prin
 echo "$unset_vars" >> env_changes.sh
 
 sort env_changes.sh | uniq | grep . > filename.tmp && mv filename.tmp env_changes.sh
-`
+`;
