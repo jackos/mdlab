@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.7.1
+
+- Add zig support and using zvm to install master if zig not on path
+
 ## v0.7.0
 
 - Large refactor of the codebase
@@ -8,7 +12,7 @@
 - Fault tolerance for subprocess errors
 - Add groq model selection
 - Send all the markdown to AI models to understand context, not just the current cell
-- Add eslint and prettier formatting, fix all probelms
+- Add eslint and prettier formatting, fix all existing problems
 - Remove Python cell interop from Mojo feature, to simplify the codebase
 
 ## v0.6.20

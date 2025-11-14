@@ -2,7 +2,7 @@
   "name": "mdlab",
   "displayName": "Markdown Lab",
   "publisher": "jackos",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Run markdown code blocks interactively in a notebook with any programming language, and generate code blocks with LLMs.",
   "main": "./out/extension.js",
   "icon": "mdlab.png",
@@ -138,7 +138,7 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "package": "vsce package",
-    "install-extension": "cursor --install-extension $(ls mdlab-*) --force",
+    "install-extension": "code --install-extension $(ls mdlab-*) --force",
     "i": "npm run package && npm run install-extension",
     "test": "npm run compile && node ./out/kernel-e2e.test.js",
     "lint": "eslint src --ext .ts,.tsx",
@@ -147,13 +147,13 @@
     "format:check": "prettier --check \"src/**/*.{ts,tsx,js,jsx,json}\""
   },
   "devDependencies": {
-    "@types/node": "^22.15.23",
+    "@types/node": "^22.19.0",
     "@types/vscode": "^1.96.2",
     "@typescript-eslint/eslint-plugin": "^8.33.0",
     "@typescript-eslint/parser": "^8.33.0",
+    "@vscode/vsce": "^3.4.2",
     "eslint": "^9.27.0",
     "prettier": "^3.5.3",
-    "typescript": "^5.8.3",
-    "@vscode/vsce": "^3.4.2"
+    "typescript": "^5.8.3"
   }
 }

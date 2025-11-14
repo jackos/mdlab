@@ -27,6 +27,7 @@ import { commandNotOnPath, installMojo, outputChannel } from './utils';
 import { existsSync, writeFileSync } from 'fs';
 import path from 'path';
 import { AIService } from './services/aiService';
+import { processCellsZig } from './languages/zig';
 
 export let lastRunLanguage = '';
 
@@ -282,7 +283,12 @@ export class Kernel {
                 }
                 lastRunLanguage = 'rust';
                 return { stream: processCellsRust(cellsStripped), clearOutput };
-
+            case 'zig':
+                if (commandNotOnPath('cargo', 'https://www.zvm.app/guides/install-zvm/')) {
+                    return null;
+                }
+                lastRunLanguage = 'zig';
+                return { stream: processCellsZig(cellsStripped), clearOutput };
             case 'go':
                 if (commandNotOnPath('go', 'https://go.dev/doc/install')) {
                     return null;
@@ -449,6 +455,18 @@ export class Kernel {
             if (errorText && !processCompleted) {
                 exec.appendOutput([
                     new NotebookCellOutput([NotebookCellOutputItem.text(errorText, mimeType)]),
+                ]);
+            }
+
+            const arr = [buf, data];
+            buf = Buffer.concat(arr);
+            const outputs = decoder.decode(buf).split(/!!output-start-cell[\n,""," "]/g);
+            const currentCellOutput =
+                lastRunLanguage === 'shell' ? outputs[1] : outputs[currentCellLang.index];
+
+            if (!clearOutput && currentCellOutput?.trim()) {
+                exec.replaceOutput([
+                    new NotebookCellOutput([NotebookCellOutputItem.text(currentCellOutput)]),
                 ]);
             }
         });

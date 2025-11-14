@@ -57,6 +57,7 @@ export const CONSTANTS = {
         FISH: 'https://fishshell.com/',
         NUSHELL: 'https://www.nushell.sh/book/installation.html',
         MOJO: 'https://modular.com/mojo',
+        ZIG: 'https://www.zvm.app/guides/install-zvm/',
     },
 } as const;
 

@@ -58,6 +58,7 @@ function registerNotebookController(context: vscode.ExtensionContext): void {
         'groq',
         'python',
         'mojo',
+        "zig",
     ];
 
     controller.executeHandler = (
