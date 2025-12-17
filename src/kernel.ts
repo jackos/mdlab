@@ -17,6 +17,7 @@ import { processCellsTypescript } from './languages/typescript';
 import { ChildProcessWithoutNullStreams, spawnSync, spawn } from 'child_process';
 import { processShell as processShell } from './languages/shell';
 import { processCellsPython } from './languages/python';
+import { processPowerShell } from './languages/powershell';
 import * as vscode from 'vscode';
 import { homedir } from 'os';
 import { processCellsMojo } from './languages/mojo';
@@ -360,7 +361,16 @@ export class Kernel {
                 }
                 lastRunLanguage = 'shell';
                 const nuResult = processShell(currentCell, 'nushell');
-                return { stream: nuResult.stream, clearOutput: nuResult.clearOutput };
+                return { stream: nuResult.stream, clearOutput: nuResult.clearOutput }
+
+            case 'powershell':
+                if (commandNotOnPath('powershell', 'https://learn.microsoft.com/en-us/powershell/scripting/install/install-powershell')) {
+                    return null;
+                }
+                lastRunLanguage = 'powershell';
+                const psResult = processPowerShell(currentCell);
+                return { stream: psResult.stream, clearOutput: psResult.clearOutput };
+
 
             default:
                 return null;
@@ -483,7 +493,8 @@ export class Kernel {
             buf = Buffer.concat(arr);
             const outputs = decoder.decode(buf).split(/!!output-start-cell[\n,""," "]/g);
             const currentCellOutput =
-                lastRunLanguage === 'shell' ? outputs[1] : outputs[currentCellLang.index];
+            ['shell','powershell'].includes(lastRunLanguage)
+                 ? outputs[1] : outputs[currentCellLang.index];
 
             if (!clearOutput && currentCellOutput?.trim()) {
                 exec.replaceOutput([
