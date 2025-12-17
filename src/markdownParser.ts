@@ -23,6 +23,7 @@ export const LANG_IDS = new Map([
     ['zsh', 'zsh'],
     ['openai', 'openai'],
     ['groq', 'groq'],
+    ['powershell', 'powershell'],
 ]);
 
 const LANG_ABBREVS = new Map(Array.from(LANG_IDS.keys()).map((k) => [LANG_IDS.get(k), k]));
