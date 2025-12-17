@@ -59,6 +59,7 @@ function registerNotebookController(context: vscode.ExtensionContext): void {
         'python',
         'mojo',
         "zig",
+        "powershell"
     ];
 
     controller.executeHandler = (
