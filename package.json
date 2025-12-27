@@ -70,6 +70,11 @@
           "type": "string",
           "default": "gpt-4-turbo",
           "description": "Check out available models here: https://platform.openai.com/docs/models/overview"
+        },
+        "mdlab.jaiPath": {
+          "type": "string",
+          "default": "",
+          "description": "Set the path to your Jai compiler executable, e.g. /home/user/jai"
         }
       }
     },

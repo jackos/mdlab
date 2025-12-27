@@ -42,4 +42,5 @@ export enum LanguageCommand {
     skip = 'skip',
     create = 'create',
     once = 'once',
+    restart = 'restart',
 }

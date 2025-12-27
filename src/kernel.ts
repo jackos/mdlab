@@ -20,14 +20,15 @@ import { processCellsPython } from './languages/python';
 import * as vscode from 'vscode';
 import { homedir } from 'os';
 import { processCellsMojo } from './languages/mojo';
-import { getTempPath } from './config';
+import { getJaiPath, getTempPath } from './config';
 
 import { Cell, ChatMessage, LanguageCommand } from './types';
-import { commandNotOnPath, installMojo, outputChannel } from './utils';
+import { checkPath, commandNotOnPath, installMojo, outputChannel } from './utils';
 import { existsSync, writeFileSync } from 'fs';
 import path from 'path';
 import { AIService } from './services/aiService';
 import { processCellsZig } from './languages/zig';
+import { processCellsJai } from './languages/jai';
 
 export let lastRunLanguage = '';
 
@@ -289,6 +290,13 @@ export class Kernel {
                 }
                 lastRunLanguage = 'zig';
                 return { stream: processCellsZig(cellsStripped), clearOutput };
+            case 'jai':
+                const jaiPath = checkPath(getJaiPath(), 'mdlab.jaiPath');
+                if (!jaiPath) {
+                    return null;
+                }
+                lastRunLanguage = 'jai';
+                return { stream: processCellsJai(jaiPath, cellsStripped), clearOutput };
             case 'go':
                 if (commandNotOnPath('go', 'https://go.dev/doc/install')) {
                     return null;

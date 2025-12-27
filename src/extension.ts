@@ -59,6 +59,7 @@ function registerNotebookController(context: vscode.ExtensionContext): void {
         'python',
         'mojo',
         "zig",
+        "jai",
     ];
 
     controller.executeHandler = (

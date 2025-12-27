@@ -4,6 +4,9 @@ import { ChatResponse } from './types';
 import { homedir } from 'os';
 import * as path from 'path';
 import { CONSTANTS } from './constants';
+import { existsSync } from 'fs';
+import { resolve } from "path";
+import { env } from 'process';
 
 export const outputChannel = vscode.window.createOutputChannel('mdlab', { log: true });
 
@@ -46,6 +49,42 @@ export const commandNotOnPath = (
         return true;
     }
 };
+
+export const logAndShowError = (message: string): void => {
+    outputChannel.appendLine(`Error: ${message}`);
+    vscode.window.showErrorMessage(message);
+}
+
+export const checkPath = (executableOrPath: string, config: string): string | null => {
+    const trimmed = executableOrPath.trim();
+    const isPath = trimmed.includes("/") || trimmed.includes("\\") || trimmed.startsWith("~");
+
+    if (isPath) {
+        const expanded = trimmed.startsWith("~")
+            ? resolve(homedir(), trimmed.slice(1).replace(/^[/\\]/, ""))
+            : trimmed;
+        const resolved = resolve(expanded);
+
+        if (!existsSync(resolved)) {
+            logAndShowError(`Update ${config} in settings.json, executable not found at path: ${resolved}`);
+            return null;
+        }
+
+        return resolved;
+    } else {
+        try {
+            const command = process.platform === "win32" ? `where ${trimmed}` : `which ${trimmed}`;
+            const result = execSync(command, { encoding: "utf-8" }).trim();
+            return result.split(/\r?\n/)[0];
+        } catch {
+            logAndShowError(`Update ${config} in settings.json, executable "${trimmed}" not found on PATH: ${env["PATH"]}`);
+            return null;
+        }
+    }
+}
+
+
+
 
 export const post = async (
     url: string,

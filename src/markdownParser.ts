@@ -16,6 +16,7 @@ export const LANG_IDS = new Map([
     ['ts', 'typescript'],
     ['rust', 'rust'],
     ['zig', 'zig'],
+    ['jai', 'jai'],
     ['go', 'go'],
     ['nu', 'nushell'],
     ['sh', 'bash'],

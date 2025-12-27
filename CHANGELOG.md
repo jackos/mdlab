@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.7.3
+
+- Add experimental Jai support
+- Add a `checkPath` utility function that handles homedir `~` symbols, for users that want to point to a compiler not on PATH
+
+## v0.7.2
+
+- Fixes for Zig requiring functions to be defined in global scope
+
 ## v0.7.1
 
 - Add zig support and using zvm to install master if zig not on path
