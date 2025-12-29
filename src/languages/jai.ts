@@ -6,17 +6,10 @@ import { checkPath, outputChannel } from '../utils';
 import * as vscode from 'vscode';
 
 const metaprogram = String.raw`//
-// A simple Metaprogram_Plugin that runs your program when
-// compilation succeeds.
-//
-
 #module_parameters (OUTPUT_EXECUTABLE_EXTENSION := DEFAULT_EXTENSION, LAUNCHER_COMMAND: [] string = DEFAULT_LAUNCHER_COMMAND) () {
     #if OS == .WINDOWS {
         DEFAULT_EXTENSION        :: ".exe";
         DEFAULT_LAUNCHER_COMMAND :: string.[];
-    } else #if OS == .PS5 {
-        DEFAULT_EXTENSION        :: ".elf";
-        DEFAULT_LAUNCHER_COMMAND :: string.["prospero-run", "/elf"];
     } else {
         DEFAULT_EXTENSION        :: "";
         DEFAULT_LAUNCHER_COMMAND :: string.[];
@@ -25,35 +18,28 @@ const metaprogram = String.raw`//
 
 run_build_result :: (w: Workspace, args: []string = .{}) {
     using options := Compiler.get_build_options(w);
-    if output_type != .EXECUTABLE {
-        log("[mdlab] Not running anything, because the Build_Options.output_type of Workspace % is %.\n", w, output_type);
-    } else {
-        // @Cleanup @Incomplete: Paths set from the command-line have no trailing slash,
-        // and paths set by the compiler do. But we are probably going to remove that convention?
-        // In the meantime, we check:
-        slash_or_not := "";
-        if output_path {
-            c := output_path[output_path.count-1];
-            if c != #char "/" && c != #char "\\" {
-                slash_or_not = "/"; // Needs a trailing slash.
-            }
+    slash_or_not := "";
+    if output_path {
+        c := output_path[output_path.count-1];
+        if c != #char "/" && c != #char "\\" {
+            slash_or_not = "/"; // Needs a trailing slash.
         }
+    }
 
-        executable_name := tprint("%1%2%3%4", output_path, slash_or_not, output_executable_name, OUTPUT_EXECUTABLE_EXTENSION);
+    executable_name := tprint("%1%2%3%4", output_path, slash_or_not, output_executable_name, OUTPUT_EXECUTABLE_EXTENSION);
 
-        command: [..] string;
-        array_add(*command, ..LAUNCHER_COMMAND);
-        array_add(*command, executable_name);
-        array_add(*command, ..args);
-        result := Process.run_command(..command);
+    command: [..] string;
+    array_add(*command, ..LAUNCHER_COMMAND);
+    array_add(*command, executable_name);
+    array_add(*command, ..args);
+    result := Process.run_command(..command);
 
-        if result.exit_code != 0 {
-            if result.type == {
-                case .FAILED_TO_LAUNCH; Compiler.compiler_report("[mdlab] Program failed to launch.");
-                case .EXITED;           Compiler.compiler_report(tprint("[mdlab] Program exited with code %.", result.exit_code));
-                case .SIGNALED;         Compiler.compiler_report(tprint("[mdlab] Program quit due to signal %.", result.signal));
-                case;                   Compiler.compiler_report(tprint("[mdlab] Unexpected result from running the program: %", result));
-            }
+    if result.exit_code != 0 {
+        if result.type == {
+            case .FAILED_TO_LAUNCH; Compiler.compiler_report("[mdlab] Program failed to launch.");
+            case .EXITED;           Compiler.compiler_report(tprint("[mdlab] Program exited with code %.", result.exit_code));
+            case .SIGNALED;         Compiler.compiler_report(tprint("[mdlab] Program quit due to signal %.", result.signal));
+            case;                   Compiler.compiler_report(tprint("[mdlab] Unexpected result from running the program: %", result));
         }
     }
 }
@@ -115,11 +101,14 @@ String   :: #import "String";
 Plugin   :: Compiler.Metaprogram_Plugin;
 `
 
-const tempDir = getTempPath();
-const mainLine = '#import "Basic";\n\nmain :: () {\n'
+const newCell = '\n\nprint("!!output-start-cell\\n");\n\n\n'
 
 export const processCellsJai = (command: string, cells: Cell[]): ChildProcessWithoutNullStreams => {
-    let innerScope = '';
+    let start = 'main :: () {\n'
+    let inner = '';
+    let global = '#import "Basic";\n\n';
+    let end = '}\n';
+
     let mainRegex = /main\s*:\s*:\s*\(.*\)\s*{/;
 
     let lastRestartId = 0;
@@ -133,12 +122,12 @@ export const processCellsJai = (command: string, cells: Cell[]): ChildProcessWit
     }
 
     for (let i = 0; i < lastRestartId; i++) {
-        innerScope += 'print("!!output-start-cell\\n");\n';
+        inner += newCell;
     }
 
     for (let c = lastRestartId; c < cells.length; c++) {
         const cell = cells[c];
-        innerScope += 'print("!!output-start-cell\\n");\n'
+        inner += newCell;
         
         // Handle metadata commands e.g. ```jai :skip
         const command = cell.cell.metadata?.command as string || '';
@@ -155,14 +144,32 @@ export const processCellsJai = (command: string, cells: Cell[]): ChildProcessWit
             continue;
         }
 
-        let lines = cell.contents.split('\n');
-        if (lines.length > 0 && lines[0].match(mainRegex)) {
-            innerScope += lines.slice(1, lines.length - 1).join('\n') + '\n';
+        
+        // instead of match, find index of main function
+        let mainMatch = cell.contents.match(mainRegex);
+        
+        if (mainMatch) {
+            // Do nothing if main cell but not current cell running
+            if ( c == cells.length -1) {
+                const beforeMain = cell.contents.substring(0, mainMatch.index);
+                start = 'mdlab_inner :: () {\n';
+                // Replace the main function opening and keep everything after
+                const afterMainOpening = cell.contents.substring(mainMatch.index! + mainMatch[0].length);
+                end = '}\n\n' + beforeMain + 'main :: () {\n    mdlab_inner();\n' + afterMainOpening;
+            }
         } else {
-            innerScope += cell.contents + '\n';
+            // Put the contents in the global scope, not inside main function
+            if (command.includes(LanguageCommand.global)) {
+                global += cell.contents + '\n';
+            } else {
+                inner += cell.contents + '\n';
+            }
         }
+
     }
-    let main = mainLine + innerScope + '}';
+    let main = global + start + inner + end;
+
+    const tempDir = getTempPath();
 
     mkdirSync(`${tempDir}/jai/modules`, { recursive: true });
 

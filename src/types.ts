@@ -43,4 +43,5 @@ export enum LanguageCommand {
     create = 'create',
     once = 'once',
     restart = 'restart',
+    global = 'global',
 }
