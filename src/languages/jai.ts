@@ -144,6 +144,11 @@ export const processCellsJai = (command: string, cells: Cell[]): ChildProcessWit
             continue;
         }
 
+        // Skip cells marked for file creation - they're handled by kernel.ts
+        if (command.startsWith(LanguageCommand.create)) {
+            continue;
+        }
+
         
         // instead of match, find index of main function
         let mainMatch = cell.contents.match(mainRegex);

@@ -93,6 +93,12 @@
         "command": "mdlab.deleteTemp",
         "title": "mdlab: Delete Tempory Folder",
         "description": "Delete the temporary folder with all the generated code files"
+      },
+      {
+        "command": "mdlab.setMetatag",
+        "title": "mdlab: Set Cell Metatag",
+        "description": "Set a metatag for the current cell (e.g., :restart, :global, :skip)",
+        "icon": "$(tag)"
       }
     ],
     "keybindings": [
@@ -105,6 +111,15 @@
         "command": "mdlab.openMain"
       }
     ],
+    "menus": {
+      "notebook/cell/title": [
+        {
+          "command": "mdlab.setMetatag",
+          "when": "notebookType == mdlab && notebookCellType == code",
+          "group": "inline@1"
+        }
+      ]
+    },
     "languages": [
       {
         "id": "openai",

@@ -3,6 +3,7 @@ import { searchNotes } from './commands/search';
 import { Kernel } from './kernel';
 import * as vscode from 'vscode';
 import { openMain } from './commands/openMain';
+import { setMetatagCommand } from './commands/setMetatag';
 import { getTempPath } from './config';
 import { rmSync } from 'fs';
 import { outputChannel, getOutputChannel } from './utils';
@@ -29,7 +30,8 @@ function registerCommands(context: vscode.ExtensionContext): void {
         vscode.commands.registerCommand(CONSTANTS.COMMANDS.OPEN_MAIN, openMain),
         vscode.commands.registerCommand(CONSTANTS.COMMANDS.DELETE_TEMP, () =>
             rmSync(getTempPath(), { recursive: true, force: true })
-        )
+        ),
+        vscode.commands.registerCommand(CONSTANTS.COMMANDS.SET_METATAG, setMetatagCommand)
     );
 
     outputChannel.appendLine('finished registering commands');

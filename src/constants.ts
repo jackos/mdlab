@@ -10,6 +10,7 @@ export const CONSTANTS = {
         SEARCH: 'mdlab.search',
         OPEN_MAIN: 'mdlab.openMain',
         DELETE_TEMP: 'mdlab.deleteTemp',
+        SET_METATAG: 'mdlab.setMetatag',
     },
 
     // Language IDs

@@ -24,7 +24,7 @@ import { getJaiPath, getTempPath } from './config';
 
 import { Cell, ChatMessage, LanguageCommand } from './types';
 import { checkPath, commandNotOnPath, installMojo, outputChannel } from './utils';
-import { existsSync, writeFileSync } from 'fs';
+import { existsSync, writeFileSync, mkdirSync } from 'fs';
 import path from 'path';
 import { AIService } from './services/aiService';
 import { processCellsZig } from './languages/zig';
@@ -109,10 +109,40 @@ export class Kernel {
         if (cell.metadata.command.startsWith(LanguageCommand.create)) {
             const file = cell.metadata.command.split('=');
             if (file.length > 1) {
-                outputChannel.appendLine(
-                    'writing cell to temp file: ' + `${tempDir}/${file[1].trim()}`
-                );
-                writeFileSync(`${tempDir}/${file[1].trim()}`, cell.document.getText());
+                const filename = file[1].trim();
+                let targetPath: string;
+
+                // Check if path is absolute or relative
+                if (path.isAbsolute(filename)) {
+                    targetPath = filename;
+                } else {
+                    targetPath = path.join(tempDir, filename);
+                }
+
+                outputChannel.appendLine('writing cell to file: ' + targetPath);
+
+                try {
+                    // Create parent directories if they don't exist
+                    const dir = path.dirname(targetPath);
+                    if (!existsSync(dir)) {
+                        mkdirSync(dir, { recursive: true });
+                    }
+
+                    writeFileSync(targetPath, cell.document.getText());
+                    outputChannel.appendLine('successfully wrote file: ' + targetPath);
+                } catch (error) {
+                    outputChannel.appendLine('error writing file: ' + error);
+                    const errorMessage = error instanceof Error ? error.message : String(error);
+                    exec.replaceOutput([
+                        new NotebookCellOutput([
+                            NotebookCellOutputItem.error(
+                                new Error(`Failed to create file: ${errorMessage}`)
+                            ),
+                        ]),
+                    ]);
+                    exec.end(false, new Date().getTime());
+                    return true;
+                }
             }
             exec.end(true, new Date().getTime());
             return true;
